@@ -3,9 +3,9 @@ defmodule Elizabeth.Server do
 
   defrecord ServerInfo, [:reader, :clients]
 
-  def start_link(port) do
+  def start_link({transport, port}) do
     :error_logger.info_msg("Starting server on port #{inspect port}\r\n")
-    { :ok, sock } = :gen_tcp.listen(port, [:binary, {:packet, :line}, {:active, false}, {:reuseaddr, true}])
+    { :ok, sock } = Socket.listen(port, [:binary, {:packet, :line}, {:active, false}, {:reuseaddr, true}], transport)
     :gen_server.start_link(__MODULE__, sock, [])
   end
 
@@ -87,7 +87,7 @@ defmodule Elizabeth.Server do
   end
 
   defp main_loop(server, sock) do
-    { :ok, csock } = :gen_tcp.accept sock
+    { :ok, csock } = sock.accept
     Elizabeth.Client.start_link server, csock
     main_loop server, sock
   end

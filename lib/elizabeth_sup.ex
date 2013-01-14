@@ -1,8 +1,8 @@
 defmodule Elizabeth.Sup do
   @behavior :supervisor
 
-  def start_link(args) do
-    :supervisor.start_link(__MODULE__, args)
+  def start_link(port) do
+    :supervisor.start_link(__MODULE__, [port])
   end
 
   def init(args) do

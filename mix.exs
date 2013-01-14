@@ -9,7 +9,7 @@ defmodule Elizabeth.Mixfile do
 
   # Configuration for the OTP application
   def application do
-    [ mod: { :elizabeth, 1337 } ]
+    [ mod: { :elizabeth, {:tcp, 1337} } ]
   end
 
   # Returns the list of dependencies in the format:

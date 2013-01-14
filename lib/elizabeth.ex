@@ -14,7 +14,7 @@ end
 
 defmodule Elizabeth do
   def start(port) do
-    Elizabeth.Sup.start_link([port])
+    Elizabeth.Sup.start_link(port)
   end
 
   def stop(pid) do

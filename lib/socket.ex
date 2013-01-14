@@ -1,4 +1,4 @@
-defrecord Socket do
+defmodule Socket do
   defp ensure_ssl() do
     case :ssl.start() do
       :ok -> :ok

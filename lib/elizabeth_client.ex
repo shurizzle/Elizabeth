@@ -10,7 +10,7 @@ defmodule Elizabeth.Client do
   def init([server, sock]) do
     :erlang.process_flag(:trap_exit, true)
 
-    :gen_tcp.send sock, "Nick: \r\n"
+    sock.send "Nick: \r\n"
 
     pid = Process.self
     reader = spawn_link fn() ->
@@ -38,7 +38,7 @@ defmodule Elizabeth.Client do
   end
 
   def handle_cast({ :message, msg }, state) do
-    :gen_tcp.send state.sock, msg
+    state.sock.send msg
     { :noreply, state }
   end
 
@@ -60,7 +60,7 @@ defmodule Elizabeth.Client do
   end
 
   defp main_loop(server, sock) do
-    case :gen_tcp.recv(sock, 0) do
+    case sock.recv(0) do
       { :ok, data } ->
         :gen_server.call server, { :receive, data }
         main_loop(server, sock)
