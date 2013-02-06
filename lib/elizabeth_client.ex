@@ -26,7 +26,7 @@ defmodule Elizabeth.Client do
     nick = String.strip(nick)
     case :gen_server.call(state.server, { :join, nick }) do
       :ok -> { :noreply, state.nick(nick) }
-      x ->   { :noreply, state }
+      _ ->   { :noreply, state }
     end
   end
 
