@@ -1,14 +1,41 @@
-defmodule Socket do
-  defp ensure_ssl() do
-    case :ssl.start() do
-      :ok -> :ok
-      { :error, { :already_started, :ssl } } -> :ok
-      error -> error
+defprotocol Socket do
+  Kernel.defmacro __using__(_) do
+    quote location: :keep do
+      defdelegate [accept(sock), accept(timeout, sock), recv(length, sock), recv(length, timeout, sock),
+        send(data, sock), close(sock), peername(sock), port(sock), sockname(sock), getopts(options, sock),
+        setopts(options, sock), controlling_process(new_owner, sock), shutdown(how, sock),
+        format(format, sock), format(format, args, sock)], to: Socket, append_first: true
     end
   end
 
+  def accept(sock)
+  def accept(sock, timeout)
+  def recv(sock, length)
+  def recv(sock, length, timeout)
+  def send(sock, data)
+  def close(sock)
+  def peername(sock)
+  def port(sock)
+  def sockname(sock)
+  def getopts(sock, options)
+  def setopts(sock, options)
+  def controlling_process(sock, new_owner)
+  def shutdown(sock, how)
+
+  Kernel.def format(sock, format) do
+    sock.format(format, [])
+  end
+
+  Kernel.def format(sock, format, args) do
+    sock.send(:io_lib.format(format, args))
+  end
+end
+
+defrecord TCPSocket, [:sock] do
+  use Socket
+
   defp transform({ :ok, sock }) do
-    { :ok, { Socket, sock } }
+    { :ok, TCPSocket.new(sock: sock) }
   end
 
   defp transform(error) do
@@ -19,77 +46,135 @@ defmodule Socket do
     transform(:gen_tcp.connect(address, port, options))
   end
 
-  def connect(address, port, options, false) do
-    connect(address, port, options)
-  end
-
-  def connect(address, port, options, :tcp) do
-    connect(address, port, options)
-  end
-
-  def connect(address, port, options, true) do
-    connect(address, port, options, :ssl)
-  end
-
-  def connect(address, port, options, :ssl) do
-    transform(:ssl.connect(address, port, options))
-  end
-
   def connect(address, port, options, timeout)
     when is_integer(timeout) or timeout == :infinity do
     transform(:gen_tcp.connect(address, port, options, timeout))
   end
 
-  def connect(address, port, options, timeout, false) do
-    connect(address, port, options, timeout)
-  end
-
-  def connect(address, port, options, timeout, :tcp) do
-    connect(address, port, options, timeout)
-  end
-
-  def connect(address, port, options, timeout, true) do
-    connect(address, port, options, timeout, :ssl)
-  end
-
-  def connect(address, port, options, timeout, :ssl)
-    when is_integer(timeout) or timeout == :infinity do
-    transform(:ssl.connect(address, port, options, timeout))
-  end
-
   def listen(port, opts) do
     transform(:gen_tcp.listen(port, opts))
   end
+end
 
-  def listen(port, opts, false) do
-    listen(port, opts)
+defimpl Socket, for: TCPSocket do
+  defp transform({ :ok, sock }) do
+    { :ok, TCPSocket.new(sock: sock) }
   end
 
-  def listen(port, opts, :tcp) do
-    listen(port, opts)
+  defp transform(error) do
+    error
   end
 
-  def listen(port, opts, true) do
-    listen(port, opts, :ssl)
+  def accept(sock) do
+    Socket.accept(sock, :infinity)
   end
 
-  def listen(port, opts, :ssl) do
+  def accept(sock, timeout) do
+    transform(:gen_tcp.accept(sock.sock, timeout))
+  end
+
+  def recv(sock, length) do
+    :gen_tcp.recv(sock.sock, length)
+  end
+
+  def recv(sock, length, timeout) do
+    :gen_tcp.recv(sock.sock, length, timeout)
+  end
+
+  def send(sock, data) do
+    :gen_tcp.send(sock.sock, data)
+  end
+
+  def close(sock) do
+    :gen_tcp.close(sock.sock)
+  end
+
+  def peername(sock) do
+    :inet.peername(sock.sock)
+  end
+
+  def port(sock) do
+    :inet.port(sock.sock)
+  end
+
+  def sockname(sock) do
+    Socket.peername(sock)
+  end
+
+  def getopts(sock, options) do
+    :inet.getopts(sock.sock, options)
+  end
+
+  def setopts(sock, options) do
+    :inet.setopts(sock.sock, options)
+  end
+
+  def controlling_process(sock, new_owner) do
+    :gen_tcp.controlling_process(sock.sock, new_owner)
+  end
+
+  def shutdown(sock, how) do
+    :gen_tcp.shutdown(sock.sock, how)
+  end
+end
+
+defrecord SSLSocket, [:sock] do
+  use Socket
+
+  defp ensure_ssl() do
+    case :ssl.start() do
+      :ok -> :ok
+      { :error, { :already_started, :ssl } } -> :ok
+      error -> error
+    end
+  end
+
+  defp transform({ :ok, sock }) do
+    { :ok, SSLSocket.new(sock: sock) }
+  end
+
+  defp transform(error) do
+    error
+  end
+
+  def connect(address, port, options) do
+    case ensure_ssl() do
+      :ok -> transform(:ssl.connect(address, port, options))
+      error -> error
+    end
+  end
+
+  def connect(address, port, options, timeout)
+    when is_integer(timeout) or timeout == :infinity do
+    case ensure_ssl() do
+      :ok -> transform(:ssl.connect(address, port, options, timeout))
+      error -> error
+    end
+  end
+
+  def listen(port, opts) do
     case ensure_ssl() do
       :ok -> transform(:ssl.listen(port, opts))
       error -> error
     end
   end
+end
 
-  def accept(sock = { Socket, _ }) do
-    sock.accept(:infinity)
+defimpl Socket, for: SSLSocket do
+  defp transform({ :ok, sock }) do
+    { :ok, SSLSocket.new(sock: sock) }
   end
 
-  def accept(timeout, { Socket, sock }) when is_port(sock) do
-    transform(:gen_tcp.accept(sock, timeout))
+  defp transform(error) do
+    error
   end
 
-  def accept(timeout, { Socket, sock = { :sslsocket, _ } }) do
-    case :ssl.transport_accept(sock, timeout) do
+  def accept(sock) do
+    Socket.accept(sock, :infinity)
+  end
+
+  def accept(sock, timeout) do
+    case :ssl.transport_accept(sock.sock, timeout) do
       { :ok, new_socket } ->
         transform(:ssl.ssl_accept(new_socket))
 
@@ -97,98 +182,50 @@ defmodule Socket do
     end
   end
 
-  def recv(length, { Socket, sock }) when is_port(sock) do
-    :gen_tcp.recv(sock, length)
+  def recv(sock, length) do
+    :ssl.recv(sock.sock, length)
   end
 
-  def recv(length, { Socket, sock = { :sslsocket, _ } }) do
-    :ssl.recv(sock, length)
+  def recv(sock, length, timeout) do
+    :ssl.recv(sock.sock, length, timeout)
   end
 
-  def recv(length, timeout, { Socket, sock }) when is_port(sock) do
-    :gen_tcp.recv(sock, length, timeout)
+  def send(sock, data) do
+    :ssl.send(sock.sock, data)
   end
 
-  def recv(length, timeout, { Socket, sock = { :sslsocket, _ } }) do
-    :ssl.recv(sock, length, timeout)
+  def close(sock) do
+    :ssl.close(sock.sock)
   end
 
-  def send(data, { Socket, sock }) when is_port(sock) do
-    :gen_tcp.send(sock, data)
+  def peername(sock) do
+    :ssl.peername(sock.sock)
   end
 
-  def send(data, { Socket, sock = { :sslsocket, _ } }) do
-    :ssl.send(sock, data)
-  end
-
-  def close({ Socket, sock }) when is_port(sock) do
-    :gen_tcp.close(sock)
-  end
-
-  def close({ Socket, sock = { :sslsocket, _ } }) do
-    :ssl.close(sock)
-  end
-
-  def peername({ Socket, sock }) when is_port(sock) do
-    :inet.peername(sock)
-  end
-
-  def peername({ Socket, sock = { :sslsocket, _ } }) do
-    :ssl.peername(sock)
-  end
-
-  def port({ Socket, sock }) when is_port(sock) do
-    :inet.port(sock)
-  end
-
-  def port({ Socket, sock = { :sslsocket, _ } }) do
-    case :ssl.peername(sock) do
+  def port(sock) do
+    case :ssl.peername(sock.sock) do
       { :ok, { _, port } } -> { :ok, port }
       error -> error
     end
   end
 
   def sockname(sock) do
-    peername(sock)
+    Socket.peername(sock)
   end
 
-  def getopts(options, { Socket, sock }) when is_port(sock) do
-    :inet.getopts(sock, options)
+  def getopts(sock, options) do
+    :ssl.getopts(sock.sock, options)
   end
 
-  def getopts(options, { Socket, sock = { :sslsocket, _ } }) do
-    :ssl.getopts(sock, options)
+  def setopts(sock, options) do
+    :ssl.setopts(sock.sock, options)
   end
 
-  def setopts(options, { Socket, sock }) when is_port(sock) do
-    :inet.setopts(sock, options)
+  def controlling_process(sock, new_owner) do
+    :ssl.controlling_process(sock.sock, new_owner)
   end
 
-  def setopts(options, { Socket, sock = { :sslsocket, _ } }) do
-    :ssl.setopts(sock, options)
-  end
-
-  def controlling_process(new_owner, { Socket, sock }) when is_port(sock) do
-    :gen_tcp.controlling_process(sock, new_owner)
-  end
-
-  def controlling_process(new_owner, { Socket, sock = { :sslsocket, _ } }) do
-    :ssl.shutdown(sock, new_owner)
-  end
-
-  def shutdown(how, { Socket, sock }) when is_port(sock) do
-    :gen_tcp.shutdown(sock, how)
-  end
-
-  def shutdown(how, { Socket, sock = { :sslsocket, _ } }) do
-    :ssl.shutdown(sock, how)
-  end
-
-  def format(format, sock = { Socket, _ }) do
-    sock.format(format, [])
-  end
-
-  def format(format, args, sock = { Socket, _ }) do
-    sock.send(:io_lib.format(format, args))
+  def shutdown(sock, how) do
+    :ssl.shutdown(sock.sock, how)
   end
 end

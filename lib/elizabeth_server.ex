@@ -3,9 +3,20 @@ defmodule Elizabeth.Server do
 
   defrecord ServerInfo, [:reader, :clients]
 
+  def t2c(trans) do
+    case trans do
+      :tcp -> TCPSocket
+      :ssl -> SSLSocket
+      _ -> nil
+    end
+  end
+
   def start_link({transport, port}) do
     :error_logger.info_msg("Starting server on port #{inspect port}\r\n")
-    { :ok, sock } = Socket.listen(port, [:binary, {:packet, :line}, {:active, false}, {:reuseaddr, true}], transport)
+    { :ok, sock } = case t2c(transport) do
+                      nil -> nil
+                      x -> x.listen(port, [:binary, {:packet, :line}, {:active, false}, {:reuseaddr, true}])
+                    end
     :gen_server.start_link(__MODULE__, sock, [])
   end
 
