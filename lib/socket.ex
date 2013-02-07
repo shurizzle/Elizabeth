@@ -161,14 +161,6 @@ defrecord SSLSocket, [:sock] do
 end
 
 defimpl Socket, for: SSLSocket do
-  defp transform({ :ok, sock }) do
-    { :ok, SSLSocket.new(sock: sock) }
-  end
-
-  defp transform(error) do
-    error
-  end
-
   def accept(sock) do
     Socket.accept(sock, :infinity)
   end
@@ -176,7 +168,10 @@ defimpl Socket, for: SSLSocket do
   def accept(sock, timeout) do
     case :ssl.transport_accept(sock.sock, timeout) do
       { :ok, new_socket } ->
-        transform(:ssl.ssl_accept(new_socket))
+        case :ssl.ssl_accept(new_socket) do
+          :ok -> { :ok, SSLSocket.new(sock: new_socket) }
+          error -> error
+        end
 
       error -> error
     end
