@@ -17,6 +17,8 @@ defmodule Elizabeth.Client do
       main_loop(pid, sock)
     end
 
+    sock.controlling_process(reader)
+
     { :ok, ClientInfo.new(server: server, reader: reader, sock: sock) }
   end
 
