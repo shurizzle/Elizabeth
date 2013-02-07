@@ -3,14 +3,6 @@ defmodule Elizabeth.Server do
 
   defrecord ServerInfo, [:readers, :clients]
 
-  def t2c(trans) do
-    case trans do
-      :tcp -> TCPSocket
-      :ssl -> SSLSocket
-      _ -> nil
-    end
-  end
-
   def start_link(ports) do
     :gen_server.start_link(__MODULE__, ports, [])
   end
