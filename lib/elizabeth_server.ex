@@ -1,7 +1,7 @@
 defmodule Elizabeth.Server do
   use GenServer.Behaviour
 
-  defrecord ServerInfo, [:reader, :clients]
+  defrecord ServerInfo, [:readers, :clients]
 
   def t2c(trans) do
     case trans do
@@ -11,24 +11,31 @@ defmodule Elizabeth.Server do
     end
   end
 
-  def start_link({transport, port}) do
-    :error_logger.info_msg("Starting server on port #{inspect port}\r\n")
-    { :ok, sock } = case t2c(transport) do
-                      nil -> nil
-                      x -> x.listen(port, [:binary, {:packet, :line}, {:active, false}, {:reuseaddr, true}])
-                    end
-    :gen_server.start_link(__MODULE__, sock, [])
+  def start_link(ports) do
+    :gen_server.start_link(__MODULE__, ports, [])
   end
 
-  def init(sock) do
+  def init(ports) do
     :erlang.process_flag(:trap_exit, true)
 
-    pid = Process.self
-    reader = spawn_link fn() ->
-      main_loop(pid, sock)
-    end
+    ports = :lists.filter(fn
+      ({:tcp, port}) when is_integer(port) -> true
+      ({:ssl, port, _}) when is_integer(port) -> true
+      (_) -> false
+    end, ports)
 
-    { :ok, ServerInfo.new(reader: reader, clients: []) }
+    pid = Process.self
+    readers = Enum.map(ports, fn ({trans, port}) ->
+        { spawn_link(fn() ->
+          main_loop(pid, trans, port)
+        end), trans, port }
+      ({trans, port, cert}) ->
+        { spawn_link(fn() ->
+          main_loop(pid, trans, port, cert)
+        end), trans, port, cert }
+    end)
+
+    { :ok, ServerInfo.new(readers: readers, clients: []) }
   end
 
   def handle_call({ :join, nick }, {from,_}, state) do
@@ -61,15 +68,36 @@ defmodule Elizabeth.Server do
   end
 
   def handle_info({:EXIT, pid, _}, state) do
-    if pid == state.reader do
-      { :stop, :normal, state }
-    else
-      { :noreply, leave(pid, state) }
+    case List.keyfind(state.readers, pid, 0) do
+      { ^pid, trans, port } ->
+        cpid = Process.self
+
+        state = state.readers(List.keyreplace(state.readers, pid, 0,
+          { spawn_link(fn() ->
+            main_loop(cpid, trans, port)
+          end), trans, port }))
+
+        { :noreply, state }
+
+      { ^pid, trans, port, cert } ->
+        cpid = Process.self
+
+        state = state.readers(List.keyreplace(state.readers, pid, 0,
+          { spawn_link(fn() ->
+            main_loop(cpid, trans, port, cert)
+          end), trans, port, cert }))
+
+        { :noreply, state }
+
+      _ ->
+        { :noreply, leave(pid, state) }
     end
   end
 
   def terminate(reason, state) do
-    :erlang.exit state.reader, reason
+    Enum.map(state.readers, fn({ reader, _, _ }) ->
+      :erlang.exit reader, reason
+    end)
   end
 
   defp broadcast(clients, msg) do
@@ -97,9 +125,47 @@ defmodule Elizabeth.Server do
     end
   end
 
-  defp main_loop(server, sock) do
-    { :ok, csock } = sock.accept
-    Elizabeth.Client.start_link server, csock
-    main_loop server, sock
+  defp main_loop(server, trans, port) do
+    main_loop(server, trans, port, 5000)
+  end
+
+  defp main_loop(server, :ssl, port, cert) do
+    main_loop(server, :ssl, port, cert, 5000)
+  end
+
+  defp main_loop(server, :tcp, port, sleep_for) do
+    :error_logger.info_msg("Starting server on port #{inspect port}\r\n")
+    try do
+      { :ok, sock } = TCPSocket.listen(port, [:binary, {:packet, :line}, {:active, false}, {:reuseaddr, true}])
+
+      :error_logger.info_msg "#{inspect Process.self} started for {:tcp, #{inspect port}}"
+      main_loop2(server, sock)
+    catch
+      _ -> :timer.sleep(sleep_for)
+    end
+  end
+
+  defp main_loop(server, :ssl, port, cert, sleep_for) do
+    :error_logger.info_msg("Starting server on port #{inspect port}\r\n")
+    try do
+      { :ok, sock } = SSLSocket.listen(port, [:binary, {:packet, :line}, {:active, false}, {:reuseaddr, true}, {:certfile, cert}, {:verify, :verify_none}])
+
+      :error_logger.info_msg "#{inspect Process.self} started for {:ssl, #{inspect port}}"
+      main_loop2(server, sock)
+    catch
+      _ -> :timer.sleep(sleep_for)
+    end
+  end
+
+  defp main_loop2(server, sock) do
+    x = sock.accept
+    :error_logger.info_msg inspect x
+    { :ok, csock } = x
+    case Elizabeth.Client.start_link(server, csock) do
+      { :ok, pid } ->
+        csock.controlling_process pid
+      _ -> nil
+    end
+    main_loop2 server, sock
   end
 end
