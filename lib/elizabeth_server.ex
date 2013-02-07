@@ -150,9 +150,7 @@ defmodule Elizabeth.Server do
   end
 
   defp main_loop2(server, sock) do
-    x = sock.accept
-    :error_logger.info_msg inspect x
-    { :ok, csock } = x
+    { :ok, csock } = sock.accept
     case Elizabeth.Client.start_link(server, csock) do
       { :ok, pid } ->
         csock.controlling_process pid
