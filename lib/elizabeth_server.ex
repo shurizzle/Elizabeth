@@ -33,8 +33,8 @@ defmodule Elizabeth.Server do
   def handle_call({ :join, nick }, {from,_}, state) do
     :erlang.link(from)
 
-    case List.keyfind(state.clients, from, 1) do
-      { nick, ^from } -> { :reply, false, state }
+    case List.keyfind(state.clients, nick, 0) do
+      { nick, _ } -> { :reply, false, state }
 
       _ ->
         :error_logger.info_msg "Join #{nick}\r\n"
