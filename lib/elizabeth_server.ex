@@ -47,8 +47,13 @@ defmodule Elizabeth.Server do
   def handle_call({:say, msg}, {from,_}, state) do
     case List.keyfind(state.clients, from, 1) do
       { nick, _ } ->
-        :error_logger.info_msg nick <> " sends: " <> msg
-        broadcast state.clients, from, nick <> ": " <> msg
+        case String.strip(msg) do
+          "" -> :ok
+          msg ->
+            msg = msg <> "\r\n"
+            :error_logger.info_msg nick <> " sends: " <> msg
+            broadcast state.clients, from, nick <> ": " <> msg
+        end
 
       _ -> :ok
     end
