@@ -28,7 +28,9 @@ defmodule Elizabeth.Client do
     nick = String.strip(nick)
     case :gen_server.call(state.server, { :join, nick }) do
       :ok -> { :noreply, state.nick(nick) }
-      _ ->   { :noreply, state }
+      _ ->
+        state.sock.send "Nick already in use, insert another nick: \r\n"
+        { :noreply, state }
     end
   end
 
